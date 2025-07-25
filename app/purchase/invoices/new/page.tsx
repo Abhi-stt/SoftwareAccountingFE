@@ -151,10 +151,10 @@ export default function NewPurchaseBillPage() {
             <Button variant="outline" onClick={() => router.push("/purchase")}>
               Cancel
             </Button>
-            <Button variant="outline">
+            {/* <Button variant="outline">
               <Upload className="h-4 w-4 mr-2" />
               Upload Bill
-            </Button>
+            </Button> */}
             <Button onClick={handleSave}>
               <Save className="h-4 w-4 mr-2" />
               Save Bill

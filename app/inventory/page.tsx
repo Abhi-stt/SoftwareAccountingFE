@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Search, Filter, Download, Eye, Edit, Trash2, Package, AlertTriangle } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { io as socketIOClient } from "socket.io-client"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api"
 
@@ -49,6 +51,17 @@ export default function InventoryPage() {
   const [errorMovements, setErrorMovements] = useState("")
   const router = useRouter()
 
+  // Add state for product and stock movement modals
+  const [showEditProductModal, setShowEditProductModal] = useState(false)
+  const [editProductData, setEditProductData] = useState<any>(null)
+  const [showEditMovementModal, setShowEditMovementModal] = useState(false)
+  const [editMovementData, setEditMovementData] = useState<any>(null)
+
+  // Add at the top, after useState for products:
+  const [categories, setCategories] = useState<string[]>(["General", "Electronics", "Furniture"]);
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
+
   // Helper to fetch products
   const fetchProducts = async () => {
     try {
@@ -58,7 +71,7 @@ export default function InventoryPage() {
       const productsRes = await fetch(`${API_BASE_URL}/products`, { headers })
       if (!productsRes.ok) throw new Error("Failed to fetch products")
       const productsData = await productsRes.json()
-      setProducts(productsData || [])
+      setProducts((productsData || []).map((p: any) => ({ ...p, id: p._id || p.id })))
     } catch (err: any) {
       setError(err.message || "Error fetching data")
     } finally {
@@ -66,21 +79,172 @@ export default function InventoryPage() {
     }
   }
 
+  // Edit handler for products
+  const handleEditProduct = (product: any) => {
+    setEditProductData({ ...product })
+    setShowEditProductModal(true)
+  }
+  const handleSaveEditProduct = async () => {
+    if (!editProductData.name || !editProductData.sku || !editProductData.category || !editProductData.currentStock || !editProductData.unit || !editProductData.unitPrice) {
+      alert('Please fill all required fields.');
+      return
+    }
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+    const payload = { ...editProductData };
+    const res = await fetch(`${API_BASE_URL}/products/${editProductData._id || editProductData.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) {
+      alert('Failed to save changes')
+      return
+    }
+    setShowEditProductModal(false)
+    setEditProductData(null)
+    fetchProducts()
+  }
+  // Add handler for new product
+  const handleAddProduct = () => {
+    setEditProductData({ name: '', sku: '', category: '', currentStock: 0, unit: '', unitPrice: 0, minStock: 0, status: 'In Stock' })
+    setShowEditProductModal(true)
+  }
+  const handleSaveNewProduct = async () => {
+    if (!editProductData.name || !editProductData.sku || !editProductData.category || !editProductData.currentStock || !editProductData.unit || !editProductData.unitPrice) {
+      alert('Please fill all required fields.');
+      return
+    }
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+    const payload = { ...editProductData };
+    const res = await fetch(`${API_BASE_URL}/products`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) {
+      alert('Failed to save product')
+      return
+    }
+    setShowEditProductModal(false)
+    setEditProductData(null)
+    fetchProducts()
+  }
+  // Delete handler for products
   const handleDeleteProduct = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this product?')) return;
     try {
       const token = localStorage.getItem('token');
-      const headers: Record<string, string> = token ? { Authorization: token } : {};
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
       const res = await fetch(`${API_BASE_URL}/products/${id}`, {
         method: 'DELETE',
         headers,
       });
       if (!res.ok) throw new Error('Failed to delete product');
-      fetchProducts();
+      // fetchProducts will be triggered by socket event
     } catch (err: any) {
       alert('Error deleting product: ' + (err.message || err));
     }
-  };
+  }
+
+  const handleDeleteMovement = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this stock movement?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch(`${API_BASE_URL}/stock-movements/${id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      if (!res.ok) throw new Error('Failed to delete stock movement');
+      // fetchStockMovements will be triggered by socket event
+    } catch (err: any) {
+      alert('Error deleting stock movement: ' + (err.message || err));
+    }
+  }
+
+  // Helper to fetch stock movements
+  const fetchStockMovements = async () => {
+    try {
+      const token = localStorage.getItem("token")
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+      setLoadingMovements(true)
+      const movementsRes = await fetch(`${API_BASE_URL}/stock-movements`, { headers })
+      if (!movementsRes.ok) throw new Error("Failed to fetch stock movements")
+      const movementsData = await movementsRes.json()
+      setStockMovements(movementsData || [])
+    } catch (err: any) {
+      setErrorMovements(err.message || "Error fetching data")
+    } finally {
+      setLoadingMovements(false)
+    }
+  }
+
+  // Edit handler for stock movements
+  const handleEditMovement = (movement: any) => {
+    setEditMovementData({ ...movement })
+    setShowEditMovementModal(true)
+  }
+  const handleSaveEditMovement = async () => {
+    if (!editMovementData.productId || !editMovementData.type || !editMovementData.quantity || !editMovementData.date) {
+      alert('Please fill all required fields.');
+      return
+    }
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+    const payload = { ...editMovementData };
+    const res = await fetch(`${API_BASE_URL}/stock-movements/${editMovementData._id || editMovementData.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) {
+      alert('Failed to save changes')
+      return
+    }
+    setShowEditMovementModal(false)
+    setEditMovementData(null)
+    fetchStockMovements()
+  }
+  // Add handler for new stock movement
+  const handleAddMovement = () => {
+    setEditMovementData({ productId: '', type: '', quantity: 0, date: '', reference: '', balance: 0 })
+    setShowEditMovementModal(true)
+  }
+  const handleSaveNewMovement = async () => {
+    if (!editMovementData.productId || !editMovementData.type || !editMovementData.quantity || !editMovementData.date) {
+      alert('Please fill all required fields.');
+      return
+    }
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+    const payload = { ...editMovementData };
+    const res = await fetch(`${API_BASE_URL}/stock-movements`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) {
+      alert('Failed to save stock movement')
+      return
+    }
+    setShowEditMovementModal(false)
+    setEditMovementData(null)
+    fetchStockMovements()
+  }
 
   useEffect(() => {
     const fetchData = async () => {
@@ -116,6 +280,9 @@ export default function InventoryPage() {
     socket.on("product:created", fetchProducts)
     socket.on("product:updated", fetchProducts)
     socket.on("product:deleted", fetchProducts)
+    socket.on("stockmovement:created", fetchStockMovements)
+    socket.on("stockmovement:updated", fetchStockMovements)
+    socket.on("stockmovement:deleted", fetchStockMovements)
 
     return () => {
       socket.disconnect()
@@ -339,7 +506,7 @@ export default function InventoryPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-2">
-                                <Button variant="ghost" size="sm" onClick={() => router.push(`/inventory/products/${id}/edit`)}>
+                                <Button variant="ghost" size="sm" onClick={() => handleEditProduct(product)}>
                                   <Edit className="h-4 w-4" />
                                 </Button>
                                 <Button variant="ghost" size="sm" onClick={() => handleDeleteProduct(id)}>
@@ -373,12 +540,13 @@ export default function InventoryPage() {
                       <TableHead>Quantity</TableHead>
                       <TableHead>Reference</TableHead>
                       <TableHead>Balance</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredMovements.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8">
+                        <TableCell colSpan={7} className="text-center py-8">
                           No stock movements found.
                         </TableCell>
                       </TableRow>
@@ -399,6 +567,16 @@ export default function InventoryPage() {
                             </TableCell>
                             <TableCell>{movement.reference || '-'}</TableCell>
                             <TableCell>{typeof movement.balance === 'number' ? movement.balance : '-'}</TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button variant="ghost" size="sm" onClick={() => handleEditMovement(movement)}>
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={() => handleDeleteMovement(id)}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
                           </TableRow>
                         );
                       })
@@ -410,6 +588,86 @@ export default function InventoryPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Modals for editing/adding Products and Stock Movements */}
+      <Dialog open={showEditProductModal} onOpenChange={setShowEditProductModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editProductData?._id || editProductData?.id ? 'Edit Product' : 'Add Product'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input placeholder="Name" value={editProductData?.name || ''} onChange={e => setEditProductData({ ...editProductData, name: e.target.value })} />
+            <Input placeholder="SKU" value={editProductData?.sku || ''} onChange={e => setEditProductData({ ...editProductData, sku: e.target.value })} />
+            <div className="flex gap-2 items-center">
+              <Select value={editProductData?.category || ''} onValueChange={val => setEditProductData({ ...editProductData, category: val })}>
+                <SelectTrigger>{editProductData?.category || 'Select Category'}</SelectTrigger>
+                <SelectContent>
+                  {categories.map((cat) => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowNewCategory(true)}>+ New Category</Button>
+            </div>
+            {showNewCategory && (
+              <div className="flex gap-2 items-center mt-1">
+                <Input placeholder="New Category" value={newCategory} onChange={e => setNewCategory(e.target.value)} />
+                <Button type="button" size="sm" onClick={() => {
+                  if (newCategory && !categories.includes(newCategory)) {
+                    setCategories([...categories, newCategory]);
+                    setEditProductData({ ...editProductData, category: newCategory });
+                    setNewCategory("");
+                    setShowNewCategory(false);
+                  }
+                }}>Add</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setShowNewCategory(false)}>Cancel</Button>
+              </div>
+            )}
+            <Input placeholder="Current Stock" type="number" value={editProductData?.currentStock || ''} onChange={e => setEditProductData({ ...editProductData, currentStock: e.target.value })} />
+            <Input placeholder="Min Stock" type="number" value={editProductData?.minStock || ''} onChange={e => setEditProductData({ ...editProductData, minStock: e.target.value })} />
+            <Input placeholder="Unit" value={editProductData?.unit || ''} onChange={e => setEditProductData({ ...editProductData, unit: e.target.value })} />
+            <Input placeholder="Unit Price" type="number" value={editProductData?.unitPrice || ''} onChange={e => setEditProductData({ ...editProductData, unitPrice: e.target.value })} />
+            <Select value={editProductData?.status || ''} onValueChange={val => setEditProductData({ ...editProductData, status: val })}>
+              <SelectTrigger>{editProductData?.status || 'Select Status'}</SelectTrigger>
+              <SelectContent>
+                <SelectItem value="In Stock">In Stock</SelectItem>
+                <SelectItem value="Low Stock">Low Stock</SelectItem>
+                <SelectItem value="Out of Stock">Out of Stock</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowEditProductModal(false)} variant="outline">Cancel</Button>
+            <Button onClick={editProductData?._id || editProductData?.id ? handleSaveEditProduct : handleSaveNewProduct}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showEditMovementModal} onOpenChange={setShowEditMovementModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editMovementData?._id || editMovementData?.id ? 'Edit Stock Movement' : 'Add Stock Movement'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input type="date" value={editMovementData?.date ? editMovementData.date.slice(0, 10) : ''} onChange={e => setEditMovementData({ ...editMovementData, date: e.target.value ? new Date(e.target.value).toISOString() : '' })} />
+            <Select value={editMovementData?.productId || ''} onValueChange={val => setEditMovementData({ ...editMovementData, productId: val })}>
+              <SelectTrigger>{products.find(p => ((p as any)._id || p.id) === editMovementData?.productId)?.name || 'Select Product'}</SelectTrigger>
+              <SelectContent>
+                {products.map(p => (
+                  <SelectItem key={(p as any)._id || p.id} value={(p as any)._id || p.id}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input placeholder="Type (Sale, Purchase, Adjustment)" value={editMovementData?.type || ''} onChange={e => setEditMovementData({ ...editMovementData, type: e.target.value })} />
+            <Input placeholder="Quantity" type="number" value={editMovementData?.quantity || ''} onChange={e => setEditMovementData({ ...editMovementData, quantity: e.target.value })} />
+            <Input placeholder="Reference" value={editMovementData?.reference || ''} onChange={e => setEditMovementData({ ...editMovementData, reference: e.target.value })} />
+            <Input placeholder="Balance" type="number" value={editMovementData?.balance || ''} onChange={e => setEditMovementData({ ...editMovementData, balance: e.target.value })} />
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowEditMovementModal(false)} variant="outline">Cancel</Button>
+            <Button onClick={editMovementData?._id || editMovementData?.id ? handleSaveEditMovement : handleSaveNewMovement}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   )
 }

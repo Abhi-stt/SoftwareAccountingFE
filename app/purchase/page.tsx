@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { io as socketIOClient } from "socket.io-client"
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api"
 
@@ -33,6 +34,14 @@ export default function PurchasePage() {
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
   const [loadingOrders, setLoadingOrders] = useState(true)
   const [errorOrders, setErrorOrders] = useState("")
+  // Add state for edit modals for purchase orders
+  const [showEditOrderModal, setShowEditOrderModal] = useState(false)
+  const [editOrderData, setEditOrderData] = useState<any>(null)
+  // Add state for edit modals for purchase bills
+  const [showEditBillModal, setShowEditBillModal] = useState(false)
+  const [editBillData, setEditBillData] = useState<any>(null)
+  // Add state for vendors
+  const [vendors, setVendors] = useState<any[]>([])
 
   const router = useRouter()
 
@@ -79,9 +88,21 @@ export default function PurchasePage() {
     }
   }
 
+  const fetchVendors = async () => {
+    try {
+      const token = localStorage.getItem("token")
+      const res = await fetch(`${API_BASE_URL}/vendors`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!res.ok) throw new Error("Failed to fetch vendors")
+      setVendors(await res.json())
+    } catch (err) {}
+  }
+
   useEffect(() => {
     fetchInvoices()
     fetchOrders()
+    fetchVendors()
     // Socket.IO real-time updates
     const socket = socketIOClient("http://localhost:5000")
     socket.on("purchasebill:created", fetchInvoices)
@@ -150,6 +171,68 @@ export default function PurchasePage() {
       alert('Error deleting order: ' + (err.message || err));
     }
   };
+
+  // Edit handler for purchase orders
+  const handleEditOrder = (order: any) => {
+    setEditOrderData({ ...order })
+    setShowEditOrderModal(true)
+  }
+  const handleSaveEditOrder = async () => {
+    if (!editOrderData.orderNumber || !editOrderData.vendorId || !editOrderData.date || !editOrderData.status || !editOrderData.totalAmount || !editOrderData.currency) {
+      alert('Please fill all required fields.');
+      return
+    }
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+    const payload = { ...editOrderData };
+    if (payload.expectedDate === '' || !payload.expectedDate) delete payload.expectedDate;
+    const res = await fetch(`${API_BASE_URL}/purchase-orders/${editOrderData._id || editOrderData.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) {
+      alert('Failed to save changes')
+      return
+    }
+    setShowEditOrderModal(false)
+    setEditOrderData(null)
+    fetchOrders()
+  }
+
+  // Edit handler for purchase bills
+  const handleEditBill = (bill: any) => {
+    setEditBillData({ ...bill })
+    setShowEditBillModal(true)
+  }
+  const handleSaveEditBill = async () => {
+    if (!editBillData.billNumber || !editBillData.vendorId || !editBillData.date || !editBillData.status || !editBillData.totalAmount || !editBillData.currency) {
+      alert('Please fill all required fields.');
+      return
+    }
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+    const payload = { ...editBillData };
+    if (payload.dueDate === '' || !payload.dueDate) delete payload.dueDate;
+    const res = await fetch(`${API_BASE_URL}/purchase-bills/${editBillData._id || editBillData.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) {
+      alert('Failed to save changes')
+      return
+    }
+    setShowEditBillModal(false)
+    setEditBillData(null)
+    fetchInvoices()
+  }
 
   return (
     <DashboardLayout>
@@ -293,9 +376,7 @@ export default function PurchasePage() {
                               <Button variant="outline" size="sm" onClick={() => setSelectedInvoice(invoice)}>
                                 <Eye className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => router.push(`/purchase/invoices/${invoice._id || invoice.id}/edit`)}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => handleEditBill(invoice)}><Edit className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="sm" onClick={() => handleDeleteBill(invoice._id || invoice.id)}>
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -364,9 +445,7 @@ export default function PurchasePage() {
                               <Button variant="outline" size="sm" onClick={() => setSelectedOrder(order)}>
                                 <Eye className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => router.push(`/purchase/orders/${order._id || order.id}/edit`)}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => handleEditOrder(order)}><Edit className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="sm" onClick={() => handleDeleteOrder(order._id || order.id)}>
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -462,6 +541,83 @@ export default function PurchasePage() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Edit Purchase Order Modal */}
+      <Dialog open={showEditOrderModal} onOpenChange={setShowEditOrderModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Purchase Order</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input placeholder="Order Number" value={editOrderData?.orderNumber || ''} onChange={e => setEditOrderData({ ...editOrderData, orderNumber: e.target.value })} />
+            <Select value={editOrderData?.vendorId || ''} onValueChange={val => setEditOrderData({ ...editOrderData, vendorId: val })}>
+              <SelectTrigger>{
+                vendors.find(v => ((v as any)._id || v.id) === editOrderData?.vendorId)?.name || 'Select Vendor'
+              }</SelectTrigger>
+              <SelectContent>
+                {vendors.map(v => (
+                  <SelectItem key={(v as any)._id || v.id} value={(v as any)._id || v.id}>{v.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input type="date" value={editOrderData?.date ? editOrderData.date.slice(0, 10) : ''} onChange={e => setEditOrderData({ ...editOrderData, date: e.target.value ? new Date(e.target.value).toISOString() : '' })} />
+            <Input type="date" value={editOrderData?.expectedDate ? editOrderData.expectedDate.slice(0, 10) : ''} onChange={e => setEditOrderData({ ...editOrderData, expectedDate: e.target.value ? new Date(e.target.value).toISOString() : '' })} />
+            <Input placeholder="Total Amount" type="number" value={editOrderData?.totalAmount || ''} onChange={e => setEditOrderData({ ...editOrderData, totalAmount: e.target.value })} />
+            <Select value={editOrderData?.status || ''} onValueChange={val => setEditOrderData({ ...editOrderData, status: val })}>
+              <SelectTrigger>{editOrderData?.status || 'Select Status'}</SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Draft">Draft</SelectItem>
+                <SelectItem value="Sent">Sent</SelectItem>
+                <SelectItem value="Accepted">Accepted</SelectItem>
+                <SelectItem value="Cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input placeholder="Currency (e.g. INR)" value={editOrderData?.currency || ''} onChange={e => setEditOrderData({ ...editOrderData, currency: e.target.value })} />
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowEditOrderModal(false)} variant="outline">Cancel</Button>
+            <Button onClick={handleSaveEditOrder}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Purchase Bill Modal */}
+      <Dialog open={showEditBillModal} onOpenChange={setShowEditBillModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Purchase Bill</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input placeholder="Bill Number" value={editBillData?.billNumber || ''} onChange={e => setEditBillData({ ...editBillData, billNumber: e.target.value })} />
+            <Select value={editBillData?.vendorId || ''} onValueChange={val => setEditBillData({ ...editBillData, vendorId: val })}>
+              <SelectTrigger>{
+                vendors.find(v => ((v as any)._id || v.id) === editBillData?.vendorId)?.name || 'Select Vendor'
+              }</SelectTrigger>
+              <SelectContent>
+                {vendors.map(v => (
+                  <SelectItem key={(v as any)._id || v.id} value={(v as any)._id || v.id}>{v.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input type="date" value={editBillData?.date ? editBillData.date.slice(0, 10) : ''} onChange={e => setEditBillData({ ...editBillData, date: e.target.value ? new Date(e.target.value).toISOString() : '' })} />
+            <Input type="date" value={editBillData?.dueDate ? editBillData.dueDate.slice(0, 10) : ''} onChange={e => setEditBillData({ ...editBillData, dueDate: e.target.value ? new Date(e.target.value).toISOString() : '' })} />
+            <Input placeholder="Total Amount" type="number" value={editBillData?.totalAmount || ''} onChange={e => setEditBillData({ ...editBillData, totalAmount: e.target.value })} />
+            <Select value={editBillData?.status || ''} onValueChange={val => setEditBillData({ ...editBillData, status: val })}>
+              <SelectTrigger>{editBillData?.status || 'Select Status'}</SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Paid">Paid</SelectItem>
+                <SelectItem value="Unpaid">Unpaid</SelectItem>
+                <SelectItem value="Partially Paid">Partially Paid</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input placeholder="Currency (e.g. INR)" value={editBillData?.currency || ''} onChange={e => setEditBillData({ ...editBillData, currency: e.target.value })} />
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowEditBillModal(false)} variant="outline">Cancel</Button>
+            <Button onClick={handleSaveEditBill}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   )
 }

@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Search, Filter, Download, Eye, Edit, Trash2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { io as socketIOClient } from "socket.io-client"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Select, SelectTrigger, SelectContent, SelectItem } from '@/components/ui/select'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api"
 
@@ -23,6 +25,12 @@ export default function SalesPage() {
   const [loadingQuotations, setLoadingQuotations] = useState(true)
   const [errorQuotations, setErrorQuotations] = useState("")
   const router = useRouter()
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editInvoiceData, setEditInvoiceData] = useState<any>(null)
+  // Add state for edit modals for quotations
+  const [showEditQuotationModal, setShowEditQuotationModal] = useState(false)
+  const [editQuotationData, setEditQuotationData] = useState<any>(null)
+  const [customers, setCustomers] = useState<any[]>([])
 
   const fetchInvoices = async () => {
     setLoadingInvoices(true)
@@ -74,9 +82,35 @@ export default function SalesPage() {
       setLoadingQuotations(false)
     }
   }
+  const fetchCustomers = async () => {
+    setLoadingInvoices(true)
+    setErrorInvoices("")
+    try {
+      const token = localStorage.getItem("token")
+      const res = await fetch(`${API_BASE_URL}/customers`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem("token")
+          localStorage.removeItem("user")
+          router.push("/login")
+          return
+        }
+        throw new Error("Failed to fetch customers")
+      }
+      const data = await res.json()
+      setCustomers(data)
+    } catch (err: any) {
+      setErrorInvoices(err.message || "Error fetching customers")
+    } finally {
+      setLoadingInvoices(false)
+    }
+  }
   useEffect(() => {
     fetchInvoices()
     fetchQuotations()
+    fetchCustomers()
     // Socket.IO real-time updates
     const socket = socketIOClient("http://localhost:5000")
     socket.on("invoice:created", fetchInvoices)
@@ -147,6 +181,67 @@ export default function SalesPage() {
       alert('Error deleting quotation: ' + (err.message || err));
     }
   };
+
+  const handleEditInvoice = (invoice: any) => {
+    setEditInvoiceData({ ...invoice })
+    setShowEditModal(true)
+  }
+  const handleSaveEditInvoice = async () => {
+    if (!editInvoiceData.invoiceNumber || !editInvoiceData.customerId || !editInvoiceData.date || !editInvoiceData.status || !editInvoiceData.totalAmount || !editInvoiceData.currency) {
+      alert('Please fill all required fields.');
+      return
+    }
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+    const payload = { ...editInvoiceData };
+    if (payload.dueDate === '' || !payload.dueDate) delete payload.dueDate;
+    const res = await fetch(`${API_BASE_URL}/sales-invoices/${editInvoiceData._id || editInvoiceData.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) {
+      alert('Failed to save changes')
+      return
+    }
+    setShowEditModal(false)
+    setEditInvoiceData(null)
+    fetchInvoices()
+  }
+
+  // Edit handler for quotations
+  const handleEditQuotation = (quote: any) => {
+    setEditQuotationData({ ...quote })
+    setShowEditQuotationModal(true)
+  }
+  const handleSaveEditQuotation = async () => {
+    if (!editQuotationData.quotationNumber || !editQuotationData.customerId || !editQuotationData.date || !editQuotationData.status || !editQuotationData.totalAmount || !editQuotationData.currency) {
+      alert('Please fill all required fields.');
+      return
+    }
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+    const payload = { ...editQuotationData };
+    if (payload.validUntil === '' || !payload.validUntil) delete payload.validUntil;
+    const res = await fetch(`${API_BASE_URL}/quotations/${editQuotationData._id || editQuotationData.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) {
+      alert('Failed to save changes')
+      return
+    }
+    setShowEditQuotationModal(false)
+    setEditQuotationData(null)
+    fetchQuotations()
+  }
 
   return (
     <DashboardLayout>
@@ -280,7 +375,7 @@ export default function SalesPage() {
                           <TableCell className="font-medium">{invoice.invoiceNumber || invoice._id || invoice.id}</TableCell>
                           <TableCell>{invoice.customerId?.name || invoice.customer?.name || invoice.customerId || invoice.customer || '-'}</TableCell>
                           <TableCell>{invoice.date ? new Date(invoice.date).toLocaleDateString() : '-'}</TableCell>
-                          <TableCell>{invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : '-'}</TableCell>
+                          <TableCell>{invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : ''}</TableCell>
                           <TableCell>₹{typeof invoice.totalAmount === 'number' ? invoice.totalAmount.toLocaleString() : '-'}</TableCell>
                           <TableCell>
                             <Badge className={getStatusColor(invoice.status)}>{invoice.status || '-'}</Badge>
@@ -297,7 +392,7 @@ export default function SalesPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => router.push(`/sales/invoices/${invoice._id || invoice.id}/edit`)}
+                                onClick={() => handleEditInvoice(invoice)}
                               >
                                 <Edit className="h-4 w-4" />
                               </Button>
@@ -376,7 +471,7 @@ export default function SalesPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => router.push(`/sales/quotations/${quote._id || quote.id}/edit`)}
+                                onClick={() => handleEditQuotation(quote)}
                               >
                                 <Edit className="h-4 w-4" />
                               </Button>
@@ -395,6 +490,80 @@ export default function SalesPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Invoice</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input placeholder="Invoice Number" value={editInvoiceData?.invoiceNumber || ''} onChange={e => setEditInvoiceData({ ...editInvoiceData, invoiceNumber: e.target.value })} />
+            <Select value={editInvoiceData?.customerId || ''} onValueChange={val => setEditInvoiceData({ ...editInvoiceData, customerId: val })}>
+              <SelectTrigger>{
+                customers.find(c => ((c as any)._id || c.id) === editInvoiceData?.customerId)?.name || 'Select Customer'
+              }</SelectTrigger>
+              <SelectContent>
+                {customers.map(c => (
+                  <SelectItem key={(c as any)._id || c.id} value={(c as any)._id || c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input type="date" value={editInvoiceData?.date ? editInvoiceData.date.slice(0, 10) : ''} onChange={e => setEditInvoiceData({ ...editInvoiceData, date: e.target.value ? new Date(e.target.value).toISOString() : '' })} />
+            <Input type="date" value={editInvoiceData?.dueDate ? editInvoiceData.dueDate.slice(0, 10) : ''} onChange={e => setEditInvoiceData({ ...editInvoiceData, dueDate: e.target.value ? new Date(e.target.value).toISOString() : '' })} />
+            <Input placeholder="Total Amount" type="number" value={editInvoiceData?.totalAmount || ''} onChange={e => setEditInvoiceData({ ...editInvoiceData, totalAmount: e.target.value })} />
+            <Select value={editInvoiceData?.status || ''} onValueChange={val => setEditInvoiceData({ ...editInvoiceData, status: val })}>
+              <SelectTrigger>{editInvoiceData?.status || 'Select Status'}</SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Paid">Paid</SelectItem>
+                <SelectItem value="Unpaid">Unpaid</SelectItem>
+                <SelectItem value="Partially Paid">Partially Paid</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input placeholder="Currency (e.g. INR)" value={editInvoiceData?.currency || ''} onChange={e => setEditInvoiceData({ ...editInvoiceData, currency: e.target.value })} />
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowEditModal(false)} variant="outline">Cancel</Button>
+            <Button onClick={handleSaveEditInvoice}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditQuotationModal} onOpenChange={setShowEditQuotationModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Quotation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input placeholder="Quotation Number" value={editQuotationData?.quotationNumber || ''} onChange={e => setEditQuotationData({ ...editQuotationData, quotationNumber: e.target.value })} />
+            <Select value={editQuotationData?.customerId || ''} onValueChange={val => setEditQuotationData({ ...editQuotationData, customerId: val })}>
+              <SelectTrigger>{
+                customers.find(c => ((c as any)._id || c.id) === editQuotationData?.customerId)?.name || 'Select Customer'
+              }</SelectTrigger>
+              <SelectContent>
+                {customers.map(c => (
+                  <SelectItem key={(c as any)._id || c.id} value={(c as any)._id || c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input type="date" value={editQuotationData?.date ? editQuotationData.date.slice(0, 10) : ''} onChange={e => setEditQuotationData({ ...editQuotationData, date: e.target.value ? new Date(e.target.value).toISOString() : '' })} />
+            <Input type="date" value={editQuotationData?.validUntil ? editQuotationData.validUntil.slice(0, 10) : ''} onChange={e => setEditQuotationData({ ...editQuotationData, validUntil: e.target.value ? new Date(e.target.value).toISOString() : '' })} />
+            <Input placeholder="Total Amount" type="number" value={editQuotationData?.totalAmount || ''} onChange={e => setEditQuotationData({ ...editQuotationData, totalAmount: e.target.value })} />
+            <Select value={editQuotationData?.status || ''} onValueChange={val => setEditQuotationData({ ...editQuotationData, status: val })}>
+              <SelectTrigger>{editQuotationData?.status || 'Select Status'}</SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Sent">Sent</SelectItem>
+                <SelectItem value="Accepted">Accepted</SelectItem>
+                <SelectItem value="Rejected">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input placeholder="Currency (e.g. INR)" value={editQuotationData?.currency || ''} onChange={e => setEditQuotationData({ ...editQuotationData, currency: e.target.value })} />
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowEditQuotationModal(false)} variant="outline">Cancel</Button>
+            <Button onClick={handleSaveEditQuotation}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   )
 }

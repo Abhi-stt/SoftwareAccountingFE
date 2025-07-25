@@ -12,12 +12,12 @@ import { Switch } from "@/components/ui/switch"
 import { Save, Upload } from "lucide-react"
 import { useRouter } from "next/navigation"
 
-const categories = [
+const initialCategories = [
   { id: "1", name: "Software" },
   { id: "2", name: "Hardware" },
   { id: "3", name: "Services" },
   { id: "4", name: "Materials" },
-]
+];
 
 const units = [
   { id: "1", name: "Piece", code: "PCS" },
@@ -43,6 +43,9 @@ export default function NewProductPage() {
   const [taxRate, setTaxRate] = useState("18")
   const [isActive, setIsActive] = useState(true)
   const [trackInventory, setTrackInventory] = useState(true)
+  const [categories, setCategories] = useState(initialCategories);
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
 
   const handleSave = async () => {
     const productData = {
@@ -122,18 +125,34 @@ export default function NewProductPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="category">Category</Label>
-                    <Select value={category} onValueChange={setCategory}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categories.map((cat) => (
-                          <SelectItem key={cat.id} value={cat.id}>
-                            {cat.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex gap-2 items-center">
+                      <Select value={category} onValueChange={setCategory}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {categories.map((cat) => (
+                            <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setShowNewCategory(true)}>+ New Category</Button>
+                    </div>
+                    {showNewCategory && (
+                      <div className="flex gap-2 items-center mt-1">
+                        <Input placeholder="New Category" value={newCategory} onChange={e => setNewCategory(e.target.value)} />
+                        <Button type="button" size="sm" onClick={() => {
+                          if (newCategory && !categories.some(c => c.name.toLowerCase() === newCategory.toLowerCase())) {
+                            const newCatObj = { id: (categories.length + 1).toString(), name: newCategory };
+                            setCategories([...categories, newCatObj]);
+                            setCategory(newCategory);
+                            setNewCategory("");
+                            setShowNewCategory(false);
+                          }
+                        }}>Add</Button>
+                        <Button type="button" size="sm" variant="ghost" onClick={() => setShowNewCategory(false)}>Cancel</Button>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="hsn">HSN/SAC Code</Label>
